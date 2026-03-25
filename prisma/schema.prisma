@@ -1,0 +1,365 @@
+// ============================================
+// Generator & Datasource
+// ============================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================
+// Enums
+// ============================================
+
+enum UserRole {
+  MEMBER
+  LIBRARIAN
+  ADMIN
+}
+
+enum MemberStatus {
+  PENDING
+  ACTIVE
+  EXPIRED
+  FROZEN
+}
+
+enum CopyStatus {
+  AVAILABLE
+  ON_LOAN
+  MAINTENANCE
+  LOST
+  REMOVED
+}
+
+enum LoanStatus {
+  ACTIVE
+  RETURNED
+}
+
+enum ReservationStatus {
+  QUEUED
+  READY_FOR_PICKUP
+  COMPLETED
+  EXPIRED
+  CANCELLED
+}
+
+enum FineStatus {
+  UNPAID
+  PAID
+  WAIVED
+}
+
+enum NotificationType {
+  DUE_REMINDER
+  OVERDUE_REMINDER
+  RESERVATION_READY
+  RESERVATION_EXPIRED
+  SYSTEM_ANNOUNCEMENT
+}
+
+// ============================================
+// User & Session
+// ============================================
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String
+  phone     String?
+  role      UserRole       @default(MEMBER)
+  status    MemberStatus   @default(PENDING)
+
+  studentId         String?   @unique
+  address          String?
+  membershipStart   DateTime?
+  membershipEnd    DateTime?
+  freezeReason     String?
+  avatarUrl        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  loans             Loan[]
+  reservations      Reservation[]
+  fines             Fine[]
+  notifications     Notification[]
+  sessions          Session[]
+  auditLogs         AuditLog[]         @relation("Operator")
+  assistantSessions AssistantSession[]
+  reminderPolicies   ReminderPolicy[]
+
+  @@index([email])
+  @@index([status])
+  @@index([role])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@index([expiresAt])
+}
+
+// ============================================
+// Book & Copy
+// ============================================
+
+model Book {
+  id          String   @id @default(cuid())
+  isbn        String   @unique
+  title       String
+  author      String
+  category    String
+  description String?
+  publishYear Int?
+  coverUrl    String?
+  isActive    Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  copies       Copy[]
+  reservations Reservation[]
+  loans       Loan[]
+
+  @@index([isbn])
+  @@index([title])
+  @@index([author])
+  @@index([category])
+  @@index([isActive])
+}
+
+model Copy {
+  id       String     @id @default(cuid())
+  bookId   String
+  book     Book       @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  barcode  String     @unique
+  location String
+  status   CopyStatus @default(AVAILABLE)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  loans Loan[]
+
+  @@index([bookId])
+  @@index([barcode])
+  @@index([status])
+}
+
+// ============================================
+// Loan & Reservation
+// ============================================
+
+model Loan {
+  id         String     @id @default(cuid())
+  userId     String
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  copyId     String
+  copy       Copy       @relation(fields: [copyId], references: [id], onDelete: Cascade)
+  bookId     String
+  book       Book       @relation(fields: [bookId], references: [id], onDelete: Cascade)
+
+  status     LoanStatus @default(ACTIVE)
+
+  borrowedAt DateTime  @default(now())
+  dueDate    DateTime
+  returnedAt DateTime?
+  renewCount Int        @default(0)
+  maxRenews  Int        @default(2)
+
+  fine           Fine?
+  reservationId  String?   @unique
+  reservation    Reservation? @relation(fields: [reservationId], references: [id])
+
+  @@index([userId])
+  @@index([copyId])
+  @@index([bookId])
+  @@index([status])
+  @@index([dueDate])
+  @@index([reservationId])
+}
+
+model Reservation {
+  id        String            @id @default(cuid())
+  userId    String
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookId    String
+  book      Book              @relation(fields: [bookId], references: [id], onDelete: Cascade)
+
+  status    ReservationStatus @default(QUEUED)
+
+  queuePosition  Int?
+  pickupDeadline DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  loan          Loan?
+  notifications Notification[]
+
+  @@index([userId])
+  @@index([bookId])
+  @@index([status])
+  @@index([pickupDeadline])
+}
+
+// ============================================
+// Fine
+// ============================================
+
+model Fine {
+  id     String     @id @default(cuid())
+  userId String
+  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  loanId String     @unique
+  loan   Loan       @relation(fields: [loanId], references: [id], onDelete: Cascade)
+
+  amount Decimal    @db.Decimal(10, 2)
+  status FineStatus @default(UNPAID)
+
+  paidAt    DateTime?
+  paidBy    String?
+  waivedAt  DateTime?
+  waivedBy  String?
+  waiveReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+// ============================================
+// Notification
+// ============================================
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type      NotificationType
+  title     String
+  content   String
+
+  isRead    Boolean         @default(false)
+  readAt    DateTime?
+
+  reservationId String?
+  reservation   Reservation? @relation(fields: [reservationId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([type])
+  @@index([reservationId])
+}
+
+// ============================================
+// AuditLog & ReminderPolicy
+// ============================================
+
+model AuditLog {
+  id         String   @id @default(cuid())
+
+  operatorId String
+  operator   User     @relation("Operator", fields: [operatorId], references: [id])
+
+  action     String
+  targetType String
+  targetId   String
+
+  beforeData Json?
+  afterData  Json?
+
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([operatorId])
+  @@index([action])
+  @@index([targetType])
+  @@index([targetId])
+  @@index([createdAt])
+}
+
+model ReminderPolicy {
+  id String @id @default(cuid())
+
+  dueDaysBefore    Int[]
+  overdueDaysAfter Int[]
+
+  dailyFineAmount Decimal   @db.Decimal(10, 2) @default(1.00)
+  maxFineAmount   Decimal   @db.Decimal(10, 2) @default(50.00)
+  graceDays       Int       @default(0)
+  loanDays        Int       @default(14)
+  reservationHoldDays Int   @default(3)
+
+  updatedBy String
+  updatedByUser User @relation(fields: [updatedBy], references: [id])
+
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@index([updatedBy])
+}
+
+// ============================================
+// Assistant (Session, Message, Knowledge)
+// ============================================
+
+model AssistantSession {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages AssistantMessage[]
+
+  @@index([userId])
+}
+
+model AssistantMessage {
+  id        String           @id @default(cuid())
+  sessionId String
+  session   AssistantSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  question String
+  answer   String
+  category String?
+
+  createdAt DateTime @default(now())
+
+  @@index([sessionId])
+}
+
+model AssistantKnowledge {
+  id        String   @id @default(cuid())
+  question  String   @unique
+  answer    String
+  category  String
+  keywords  String[] @db.Text
+  isActive  Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+  @@index([isActive])
+}
