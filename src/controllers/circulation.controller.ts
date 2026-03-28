@@ -9,7 +9,7 @@ import { success } from '../utils/response.js';
 import { AppError, ErrorCode } from '../middlewares/errorHandler.js';
 import { ReturnCondition } from '../services/interfaces/circulation/IReturnBookUseCase.js';
 import { z } from 'zod';
-import { validateBody, validateQuery } from '../middlewares/validate.js';
+import { validateBody, validateQuery } from '../middlewares/index.js';
 
 const router = Router();
 
